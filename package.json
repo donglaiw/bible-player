@@ -1,0 +1,1 @@
+{"name":"daily-bible-offline","version":"0.1.0","private":true,"scripts":{"test":"node tests/plan.test.js && node tests/offline.test.js && node tests/player.test.js && node tests/sw.test.js","start":"python3 -m http.server 8766 --bind 127.0.0.1 --directory web"},"devDependencies":{"fake-indexeddb":"6.2.4"}}

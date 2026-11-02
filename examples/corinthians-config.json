@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "title": "Listen to Corinthians",
+  "edition": "ESV",
+  "defaultTrack": "corinthians",
+  "autoAdvanceTracks": false,
+  "tracks": [
+    {
+      "id": "corinthians",
+      "label": "2 Corinthians",
+      "type": "custom",
+      "advance": "completion",
+      "readings": [
+        [{"book": "2 Corinthians", "chapter": 1}, {"book": "2 Corinthians", "chapter": 2}],
+        [{"book": "2 Corinthians", "chapter": 3}]
+      ]
+    }
+  ],
+  "recordings": []
+}

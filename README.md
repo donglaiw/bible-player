@@ -1,107 +1,178 @@
-# Daily Psalms
+# Daily Bible
 
-A small personal audio player with two reading parts, for a Mac library and a phone browser. No packages,
-subscription, downloads, or bundled Bible recordings. Requires Python 3.9+.
+One local Git repository, two players on two branches:
 
-## Start on the Mac
+| Branch | Player |
+| --- | --- |
+| `mac-streaming` | Original dependency-free Mac server and reading player; phone streaming can use private Tailscale Serve. |
+| `offline-phone` | Installable browser app; imports recordings into phone storage and plays offline. This README describes this branch. |
 
-```sh
-cd ~/dw-desk/bible-player
-python3 server.py
-```
+The original `~/dw-desk/bible-player` has been left intact. No remote,
+public hosting, or Tailscale configuration was created. Audio is never committed.
+Switch versions with `git switch mac-streaming` or `git switch offline-phone`.
 
-Open <http://127.0.0.1:8765>. Keep that terminal running. Stop with Control-C.
-The interface works before adding audio and shows exactly which chapters are missing.
+## Run locally
 
-## Add your recordings later
-
-Use one MP3 per chapter, with this layout:
-
-```text
-audio/
-  Psalms/
-    001.mp3
-    002.mp3
-    ...
-    150.mp3
-  Proverbs/
-    001.mp3
-    ...
-    031.mp3
-  Genesis/
-    001.mp3
-    ...
-    050.mp3
-  ...
-```
-
-Numbers without padding and names like `Psalm 16.mp3` also work. M4A and WAV files
-are also accepted. Unrecognized or
-duplicate chapter names are reported; the player does not guess which recording
-to use. Click **Refresh library** after adding files. MP3s are ignored by Git.
-An existing library can be used with `python3 server.py --audio-dir /path/to/audio`.
-Book folder names and chapter counts are listed in `books.json`. Use those exact
-names, including spaces (for example `1 Samuel`). Only the books you have audio
-for need folders. Standard 66-book Protestant chapter numbering is used.
-
-## Automatic reading plan
-
-- **Default monthly part:** all 150 Psalms and 31 Proverbs every calendar month.
-  Daily portions adjust to 28, 29, 30, or 31 days (roughly five Psalms and one
-  Proverb). The phone's local date selects the reading. Starting midmonth selects
-  that date's portion; there is no catch-up queue.
-- **Annual part:** a simple Genesis-to-Revelation plan divides all 1,189 chapters
-  into 365 readings of three or four chapters. It starts on the chosen plan start
-  date, which defaults to the first day you open the player. This is **not an
-  official ESV reading plan**; the exact ESV plan has not yet been chosen.
-  It includes Psalms and Proverbs as part of the whole Bible, in addition to
-  the monthly readings. You can use your ESV MP3s with either part.
-- Switch between the two parts with the buttons above the reading card. Each
-  part remembers its own chapter and playback position. Finishing Psalms and
-  Proverbs automatically starts the annual part when its audio is available.
-  Playback stops after the annual part. If annual audio is missing, playback stops
-  with a message instead of skipping chapters.
-- Optional **continue** mode advances each part when its last chapter ends;
-  missed dates do not skip readings. Psalms cycle after 30 readings; Proverbs
-  after 31, independently. The annual part advances independently too.
-- Optional **rolling calendar** mode chooses both parts by elapsed days since
-  a start date, using your phone's local date. These cycles do not reset monthly.
-- Repeat a chapter or the whole reading. Repeating a reading does not advance it.
-- Position, speed, and plan settings are stored in this browser on this device.
-  Private browsing, clearing browser data, or changing the site's address may
-  lose that position. There is no cross-device progress sync in this version.
-- The whole reading must be available before the main Play button is enabled.
-  Individual available chapters can be played, but the player will not skip
-  missing audio. Next/Previous manually move through the current reading.
-
-## Phone connection — when you are ready
-
-1. Install Tailscale on the phone, sign in to the same tailnet as the Mac, and connect.
-2. Keep the server running on the Mac, then run on the Mac:
-
-   ```sh
-   tailscale serve --bg http://127.0.0.1:8765
-   ```
-
-3. Complete Tailscale's HTTPS setup if prompted, then open its displayed HTTPS URL
-   on your phone. Tailnet access rules determine which devices may connect.
-
-Tailscale configuration has **not** been changed by creating this app. Check any
-existing Serve configuration before adding this service. This app has no separate
-login; keep it bound to localhost and expose it only within your private tailnet.
-The Mac must stay awake and online. No router port forwarding is required.
-
-The phone must initiate playback with a tap. The player uses one audio element,
-HTTP byte ranges for seeking, and Media Session controls where supported.
-**Physical-phone checks still required:** lock the phone during playback, wait
-through a chapter transition, try headset controls, and reconnect after losing
-network access. Browser background behavior varies. Offline downloads and a
-native phone app are not included.
-
-## Checks
+There are no runtime packages or build step. Python 3.9+ is enough:
 
 ```sh
+cd ~/dw-os/coding/bible-player
+python3 -m http.server 8766 --bind 127.0.0.1 --directory web
+```
+
+Open http://127.0.0.1:8766 in a browser. Stop the server with Control-C.
+`npm start` runs the same command. The original `server.py` is retained for
+compatibility, but the offline player never calls its audio/library API.
+
+## Install on an iPhone
+
+This is an **installed offline web app**, not an HTML attachment opened in Files.
+It needs a stable HTTPS address for the initial installation (localhost is an
+exception for testing on the Mac). The phone cannot use the Mac's localhost URL.
+
+A private Tailscale HTTPS address is one possible installation route. The phone
+and Mac would join the same tailnet. Inspect `tailscale serve status` first to
+avoid replacing another service. When separately authorized, serving this app
+would use `tailscale serve --bg http://127.0.0.1:8766`; no Serve configuration has
+been changed by this work. Another HTTPS static host would also work.
+
+1. Open the HTTPS app URL in Safari while the server is running. Wait for
+   **App saved for offline use**.
+2. Use Safari's Share menu → **Add to Home Screen** → open the new icon.
+3. **Import recordings in that Home Screen app**, even if you previously imported
+   them into a browser tab. Installed-app storage behavior can differ.
+4. Select your already-downloaded MP3s in Files, or use the folder picker if your
+   iOS version supports it. Import makes local copies: budget extra phone storage.
+   Selecting an iCloud-only file may first download it using Wi-Fi or mobile data.
+5. Keep the app open until importing finishes. Then play the reading. After the
+   app shell and recordings are saved, the server, Tailscale, and internet are not
+   needed for those recordings. Closing and reopening the app is supported.
+6. Before relying on it, perform the physical-phone checks below.
+
+Use a normal browser profile, not private browsing. Do not change the URL/origin
+if you want to retain the same library. No App Store account, subscription, or
+native signing is used. You initiate playback with a tap; it does not wake the
+phone or start itself at a scheduled time.
+
+## Recordings and storage
+
+Imports stay on the device. The app sends no audio to a server. The service
+worker caches the app's HTML, scripts, styles, and default config; IndexedDB
+stores chapter blobs, imported config, and playback progress. Only the current
+and following chapter are kept as playback URLs. Original files remain intact.
+
+Supported automatic names:
+
+- `B08___01_2CorinthiansENGESVN1DA.mp3`: Faith Comes By Hearing A/OT and B/NT
+  book numbers, using the standard 66-book Protestant order.
+- `Psalms/001.mp3`: select the folder to retain its relative path.
+- `2 Corinthians 1.mp3`: useful when selecting individual files.
+
+MP3, M4A, WAV, AAC, and OGG are accepted; actual playback depends on the browser's
+codec support. Unknown names are reported, never guessed. Multiple selected
+recordings for one chapter are excluded from that import. Existing saved chapters
+are skipped, so retrying an interrupted import preserves previous work. Filename
+mappings can handle other layouts. There is no edition mixing/replacement UI;
+use one edition per app library. Changing a config does not replace saved audio.
+
+**Keep your source recordings.** Storage persistence is requested but not
+promised; the browser/OS manages quotas. Clearing website data removes saved
+recordings, config, and progress. An interrupted import preserves completed
+chapters; select the files again to resume. Playback positions are saved about
+every two seconds and on pause/backgrounding, so an abrupt process kill may lose
+the last few seconds. Progress does not sync between devices or browser profiles.
+
+## Config
+
+Edit `web/config.json` before a fresh installation, or use **Reading schedules &
+config → Export config / Import config** on the device. Once installed, import
+config changes explicitly; changing a file on the Mac does not overwrite the
+phone's imported config. Config imports validate before saving, preserve audio,
+and reset reading positions after confirmation.
+
+`startDate` is a local calendar date (`YYYY-MM-DD`), or `null` for first use.
+`edition` is a display label for **your** recordings, not a bundled translation.
+`recordings` maps relative filenames to chapters, not arbitrary filesystem paths
+or network URLs. The user must select the files before the browser can read them.
+If selecting files individually, map their basenames; folder selection also
+supports suffixes such as `New Testament/special.mp3`.
+
+Example (also see `examples/corinthians-config.json`):
+
+```json
+{
+  "version": 1,
+  "title": "Daily Bible",
+  "edition": "ESV",
+  "startDate": null,
+  "defaultTrack": "corinthians",
+  "autoAdvanceTracks": false,
+  "tracks": [{
+    "id": "corinthians",
+    "label": "2 Corinthians",
+    "type": "sequential",
+    "books": ["2 Corinthians"],
+    "days": 13,
+    "advance": "completion"
+  }],
+  "recordings": [{
+    "book": "2 Corinthians",
+    "chapter": 1,
+    "filename": "my-chapter-one.mp3"
+  }]
+}
+```
+
+Schedule types:
+
+| Type | Fields and behavior |
+| --- | --- |
+| `monthly` | `books`: evenly distributes all their chapters over the current calendar month, including February. Calendar only. |
+| `sequential` | `books`, `days`: splits the concatenated books into that many nonempty daily readings and repeats after that many days. |
+| `cycle` | `books`, `chaptersPerBook`: this many chapters from each book per reading; each book wraps independently. Use separate tracks for different chapter counts. |
+| `custom` | `readings`: an array of daily arrays of `{ "book": "John", "chapter": 1 }`; repeats after the last reading. |
+
+For non-monthly tracks, `advance: "calendar"` (default) follows elapsed local dates
+from `startDate`; `advance: "completion"` advances only when a whole reading ends.
+Each track keeps its own chapter and position. `autoAdvanceTracks: true` continues
+into the next configured track after a reading, then stops after the final track.
+A missing recording stops playback rather than silently skipping it. Repeat can
+hold one chapter or a whole reading. Speed and supported lock-screen controls
+are included.
+
+The default config contains monthly Psalms & Proverbs plus a simple
+Genesis-to-Revelation 365-reading plan, including Psalms and Proverbs again.
+**It is not an official ESV reading plan.** Calendar schedules have no catch-up
+queue; tomorrow selects tomorrow's portion. Completion schedules retain your place.
+
+## Development and checks
+
+Node is needed only for tests; the sole test dependency is `fake-indexeddb`.
+
+```sh
+npm ci --ignore-scripts
+npm test
 python3 -m unittest discover -s tests -v
-node tests/plan.test.js
-node tests/player.test.js
 ```
+
+Automated checks exercise imported chapter blobs and progress across database
+reopening, duplicate-safe retries, config/filename validation, monthly/leap-year
+and full-Bible schedule coverage, repeat, independent track progress, date rollover,
+chapter transitions, missing-audio stops, and shell caching with the network absent.
+These use a simulated player/IndexedDB for repeatable checks, not an actual iPhone.
+
+Desktop Chrome check on 2026-11-02: imported the included custom config and two
+actual downloaded ESV MP3s through the native file picker. Playback used a `blob:`
+URL. After stopping the local HTTP server, reloaded the app, recovered chapter
+one's saved position (~33.68 seconds), and played chapter two from stored audio.
+The server was stopped after this check. This establishes desktop browser behavior.
+
+**Physical iPhone checks still required:** reopen from the Home Screen in airplane
+mode; play and seek; lock the phone through a chapter boundary; test headset
+play/pause/skip; switch schedules; reopen the following day; and check a large
+import against real storage limits. Browser/OS background behavior can interrupt
+automatic transitions. No claim of phone acceptance is made yet.
+
+When changing app-shell assets, bump the cache version in `web/sw.js`. Close old
+app tabs and reopen while online to activate the new worker. Audio and settings
+are stored separately and are not removed by shell-cache updates.

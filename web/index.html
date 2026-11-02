@@ -1,43 +1,45 @@
 <!doctype html>
 <html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#193c35">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>Daily Psalms</title>
-<link rel="stylesheet" href="style.css">
-<main>
-  <header><span class="eyebrow">A LITTLE SPACE TO LISTEN</span><span class="leaf" aria-hidden="true">✦</span></header>
-  <h1>Daily Psalms</h1>
-  <p class="intro">Psalms & Proverbs each month. The whole Bible in a year.</p>
-  <nav class="controls" aria-label="Reading part"><button id="dailyPart">Psalms & Proverbs</button><button id="annualPart">Bible in a year</button></nav>
-  <section class="card">
-    <div class="eyebrow" id="dayLabel"></div>
-    <h2 id="readingTitle"></h2>
-    <p id="planNote"></p>
-    <ol id="queue" aria-label="Reading chapters"></ol>
-    <div class="now" id="now">Ready when you are.</div>
-    <audio id="audio" controls preload="metadata" aria-label="Chapter player"></audio>
-    <button class="primary" id="play">Play my reading</button>
-    <div class="controls"><button id="previous">← Previous</button><button id="next">Next →</button></div>
-    <div class="options">
-      <label>Repeat <select id="repeat"><option value="off">Off</option><option value="chapter">This chapter</option><option value="reading">Entire reading</option></select></label>
-      <label>Speed <select id="speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label>
-    </div>
-    <p id="message" role="status" aria-live="polite"></p>
-  </section>
-  <details>
-    <summary>Reading plan & library</summary>
-    <p>Continue where you left off, or let the date choose your reading.</p>
-    <label>Schedule<select id="mode"><option value="monthly">Monthly Psalms & Proverbs + annual Bible</option><option value="progress">Continue after each completed reading</option><option value="calendar">Rolling cycles by calendar day</option></select></label>
-    <label>Plan start date<input id="start" type="date"></label>
-    <button id="apply">Apply plan</button>
-    <p class="muted">Monthly mode completes all Psalms and Proverbs each calendar month, including February. Other modes use independent 30- and 31-reading cycles. The annual part is a simple Genesis-to-Revelation plan, not an official ESV plan. Applying a plan resets both parts. Progress stays in this browser on this device.</p>
-    <p id="libraryStatus"></p>
-    <button id="refresh">Refresh library</button>
-    <p class="muted">Add chapter MP3s on your Mac to <code>audio/Psalms/001.mp3</code>, <code>audio/Proverbs/001.mp3</code>, and other book folders such as <code>audio/Genesis/001.mp3</code>. See README for book names.</p>
-  </details>
-  <footer>One reading at a time.</footer>
-</main>
-<script src="plan.js"></script><script src="app.js"></script>
-</html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#193c35"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Daily Bible · Offline</title>
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg"><link rel="stylesheet" href="style.css">
+</head>
+<body><main>
+<header><span class="eyebrow">A LITTLE SPACE TO LISTEN</span><span class="leaf" aria-hidden="true">✦</span></header>
+<h1 id="appTitle">Daily Bible</h1><p class="intro">Your recordings. Your daily reading. Ready offline.</p>
+<p id="offlineStatus" class="muted" role="status">Preparing offline access…</p>
+<nav id="tracks" class="controls" aria-label="Reading schedule"></nav>
+<section class="card" aria-label="Today’s reading">
+<div class="eyebrow" id="dayLabel"></div><h2 id="readingTitle">Loading your reading…</h2>
+<p id="planNote"></p><ol id="queue" aria-label="Reading chapters"></ol>
+<div class="now" id="now">Ready when you are.</div>
+<audio id="audio" controls preload="metadata" aria-label="Chapter player"></audio>
+<button class="primary" id="play" disabled>Play my reading</button>
+<div class="controls"><button id="previous" disabled>← Previous</button><button id="next" disabled>Next →</button></div>
+<div class="options"><label>Repeat<select id="repeat"><option value="off">Off</option><option value="chapter">This chapter</option><option value="reading">Entire reading</option></select></label>
+<label>Speed<select id="speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label></div>
+<p id="message" role="status" aria-live="polite"></p>
+</section>
+<details id="libraryPanel" open><summary>Recordings on this phone</summary>
+<p>Import from Files once. Saved copies play without the Mac or an internet connection.</p>
+<label class="importLabel">Import recordings<input id="files" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,audio/*" multiple></label>
+<label class="importLabel">Or select a recording folder<input id="folder" type="file" webkitdirectory multiple></label>
+<p class="muted">ESV filenames such as B08___01_2CorinthiansENGESVN1DA.mp3 are recognized automatically. Book folders such as Psalms/001.mp3 and filenames such as 2 Corinthians 1.mp3 also work.</p>
+<p id="libraryStatus" role="status"></p><progress id="importProgress" hidden value="0" max="1" aria-label="Recording import"></progress>
+<p id="importStatus" role="status" aria-live="polite"></p>
+<details><summary>Import details</summary><pre id="importDetails">No import yet.</pre></details>
+<p id="storageStatus" class="muted"></p><button id="persist">Keep offline storage</button>
+<p class="muted">Keep the originals in Files. Clearing this website’s data removes its saved copies. Importing again skips chapters already saved.</p>
+</details>
+<details><summary>Reading schedules & config</summary>
+<p>The default completes Psalms and Proverbs each calendar month and divides the whole Bible into 365 readings. This is not an official ESV reading plan.</p>
+<label>Plan start date<input id="start" type="date"></label><button id="applyStart">Save start date</button>
+<p class="muted">Changing the start date resets saved reading positions. Calendar schedules select today’s portion without a catch-up queue.</p>
+<div class="controls"><button id="exportConfig">Export config</button></div>
+<label class="importLabel">Import config<input id="configFile" type="file" accept=".json,application/json"></label>
+<p id="configStatus" role="status"></p><p class="muted">Config supports monthly, sequential, repeating, and custom reading schedules, plus filename mappings. Import recordings after adding new mappings. See README for examples.</p>
+</details>
+<footer>One reading at a time.</footer>
+</main><script src="plan.js"></script><script src="library.js"></script><script src="app.js"></script></body></html>
