@@ -26,6 +26,9 @@ compatibility, but the offline player never calls its audio/library API.
 
 ## Install on an iPhone
 
+The published app is at https://donglaiw.github.io/bible-player/ (GitHub Pages, deployed from `web/` by `.github/workflows/pages.yml` on each push to `offline-phone`). Open that address in Safari, then follow the steps below.
+
+
 This is an **installed offline web app**, not an HTML attachment opened in Files.
 It needs a stable HTTPS address for the initial installation (localhost is an
 exception for testing on the Mac). The phone cannot use the Mac's localhost URL.
