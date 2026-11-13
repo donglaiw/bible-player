@@ -75,8 +75,11 @@ async function urlFor(item, token=generation) {
     const promise=(async()=>{
       const record=await Library.get(db,'audio',id);
       if(!record?.blob) throw Error(`${item.book} ${item.chapter} is not saved. Import it to continue.`);
+      if(Number.isFinite(record.size) && record.blob.size<record.size) throw Error(`${item.book} ${item.chapter} was only partly saved. Import it again to repair it.`);
+      // Play from memory: Safari can stall partway through media streamed from a disk-backed IndexedDB blob.
+      const data=await record.blob.arrayBuffer();
       if(token!==generation) return null;
-      const url=URL.createObjectURL(record.blob); urls.set(id,url); return url;
+      const url=URL.createObjectURL(new Blob([data],{type:record.type || record.blob.type || 'audio/mpeg'})); urls.set(id,url); return url;
     })();
     pending.set(id,promise);
   }

@@ -1,5 +1,5 @@
 /* Bump this version when any shell asset changes. Audio lives separately in IndexedDB. */
-const CACHE='daily-bible-shell-v2';
+const CACHE='daily-bible-shell-v3';
 const ASSETS=['./','./index.html','./style.css','./plan.js','./library.js','./app.js','./config.json','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{

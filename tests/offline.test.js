@@ -38,6 +38,10 @@ const file=(name,text='audio',path='')=>{
   assert.equal(await (await L.get(db,'audio','John/2')).blob.text(),'second','Retry must not overwrite a saved chapter');
   assert.equal((await L.get(db,'settings','progress')).positions.daily.seconds,17);
   const rows=await L.list(db);assert.equal(rows.length,2);assert.equal(rows[0].blob,undefined,'Library metadata must not retain all audio blobs');
+  await L.put(db,'audio',{id:'John/4',book:'John',chapter:4,name:'John 4.mp3',size:10,type:'audio/mpeg',blob:new Blob(['cut'])});
+  result=await L.importFiles(db,[file('John 4.mp3','full audio')],config);
+  assert.equal(result.added,1,'A partly saved chapter must be repaired on re-import');
+  assert.equal(await (await L.get(db,'audio','John/4')).blob.text(),'full audio');
   db.close();
   console.log('Offline library: filename mapping, config validation, calendar coverage, duplicate safety, and audio/progress reopening passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

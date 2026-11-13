@@ -124,11 +124,17 @@
     let added=0, existing=0, processed=0;
     for (const [id,item] of candidates) {
       if (item) {
-        if (await get(db,'audio',id)) existing++;
+        const saved=await get(db,'audio',id);
+        // A saved copy shorter than its source was cut off during an earlier import; replace it.
+        if (saved && saved.blob && saved.blob.size===saved.size) existing++;
         else {
           const {file,book,chapter}=item;
           const type=file.type || (/\.mp3$/i.test(file.name)?'audio/mpeg':/\.m4a$/i.test(file.name)?'audio/mp4':'');
-          try { await put(db,'audio',{id,book,chapter,name:file.name,size:file.size,type,blob:file.slice(0,file.size,type)}); added++; }
+          // Copy every byte now. iOS can hand back lazily loaded Files whose later bytes never arrive.
+          let data;
+          try { data=await file.slice(0,file.size,type).arrayBuffer(); } catch(error) { data=null; }
+          if (!data || data.byteLength!==file.size) { skipped.push(`${file.name}: could not read the whole file (download it in Files, then import again)`); progress({added,existing,processed:++processed,total:candidates.size}); continue; }
+          try { await put(db,'audio',{id,book,chapter,name:file.name,size:file.size,type,blob:new Blob([data],{type})}); added++; }
           catch(error) { error.imported=added; throw error; }
         }
       }
