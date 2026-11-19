@@ -9,7 +9,7 @@ const path=require('node:path');
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/sw.js'),'utf8'),context);
   let pending;handlers.install({waitUntil:p=>pending=p});await pending;
   handlers.activate({waitUntil:p=>pending=p});await pending;assert.deepEqual(deleted,['daily-bible-shell-old']);
-  for(const asset of ['index.html','app.js','library.js','config.json','style.css']){
+  for(const asset of ['index.html','app.js','library.js','mp3.js','config.json','style.css']){
     handlers.fetch({request:{method:'GET',url:'https://example.com/bible/'+asset},respondWith:p=>pending=p});
     assert.ok(await pending,`${asset} available with network disabled`);
   }

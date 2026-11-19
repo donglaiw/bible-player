@@ -1,6 +1,6 @@
 /* Bump this version when any shell asset changes. Audio lives separately in IndexedDB. */
-const CACHE='daily-bible-shell-v3';
-const ASSETS=['./','./index.html','./style.css','./plan.js','./library.js','./app.js','./config.json','./manifest.webmanifest','./icon.svg'];
+const CACHE='daily-bible-shell-v4';
+const ASSETS=['./','./index.html','./style.css','./plan.js','./library.js','./mp3.js','./app.js','./config.json','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
   for(const name of await caches.keys()) if(name.startsWith('daily-bible-shell-') && name!==CACHE) await caches.delete(name);

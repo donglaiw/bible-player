@@ -4,6 +4,8 @@ const audio = $('audio');
 let db, config, state, records = new Map(), queue = [];
 let urls = new Map(), pending = new Map(), generation = 0, loadedKey = '', resumeAt = 0, lastSave = 0;
 let saving = Promise.resolve(), currentLoad = null;
+let joined = null, stallTimer, recovering = false, retryAvailable = true, needsReload = false, wantsPlayback = false;
+const maxJoinedBytes = 24 * 1024 * 1024;
 const freshState = () => ({track:config.defaultTrack || config.tracks[0].id,start:config.startDate || Plan.dateKey(),positions:{},speed:1,repeat:'off'});
 const track = () => config.tracks.find(t=>t.id===state.track);
 const position = () => state.positions[state.track] ||= {day:0,index:0,seconds:0,date:Plan.dateKey()};
@@ -15,7 +17,10 @@ function save() {
   return saving;
 }
 function unload() {
-  generation++; currentLoad=null; audio.pause(); loadedKey=''; audio.removeAttribute('src'); audio.load();
+  clearTimeout(stallTimer);
+  generation++; currentLoad=null; loadedKey=''; resumeAt=0; wantsPlayback=false; audio.pause();
+  if(joined) URL.revokeObjectURL(joined.url);
+  joined=null; needsReload=false; audio.removeAttribute('src'); audio.load();
   for(const url of urls.values()) URL.revokeObjectURL(url);
   urls.clear(); pending.clear();
 }
@@ -66,20 +71,72 @@ function render() {
   $('message').textContent=missing.length ? `${missing.length} recording${missing.length===1?'':'s'} needed. Import them below. Available chapters can be played individually.` : '';
   $('play').textContent=audio.paused ? 'Play my reading' : 'Pause reading';
   $('repeat').value=state.repeat; $('speed').value=String(state.speed); $('start').value=state.start;
-  audio.playbackRate=state.speed; audio.loop=state.repeat==='chapter';
+  audio.playbackRate=state.speed; applyLoop();
+}
+async function recordingData(id) {
+  const record=await Library.get(db,'audio',id);
+  const label=id.replace('/', ' ');
+  if(!record?.blob) throw Error(`${label} is not saved. Import it to continue.`);
+  const data=await record.blob.arrayBuffer();
+  if(!data.byteLength || (Number.isFinite(record.size) && data.byteLength!==record.size)) {
+    throw Error(`${label} was only partly saved. Import it again to repair it.`);
+  }
+  return {data,type:record.type || record.blob.type || 'audio/mpeg'};
+}
+async function joinReading(token) {
+  const chapters=[], parts=[];
+  let seconds=0, bytes=0, format;
+  // Keep the compressed audio bounded, including for long custom readings.
+  for(let index=0;index<queue.length;index++){
+    const item=queue[index], id=Library.key(item.book,item.chapter), record=records.get(id);
+    if(!record || !/\.mp3$/i.test(record.name) || bytes+record.size>maxJoinedBytes) return null;
+    const {data}=await recordingData(id);
+    if(token!==generation) return null;
+    bytes+=data.byteLength;
+    if(bytes>maxJoinedBytes) return null;
+    const frames=MP3.frames(data);
+    if(!frames || (format && frames.format!==format)) return null;
+    format=frames.format;
+    chapters.push({id,start:seconds});
+    parts.push(frames.data);
+    seconds+=frames.seconds;
+  }
+  const url=URL.createObjectURL(new Blob(parts,{type:'audio/mpeg'}));
+  return {url,chapters,duration:seconds};
+}
+function updateMediaMetadata() {
+  const item=queue[position().index];
+  if(item && 'mediaSession' in navigator && typeof MediaMetadata!=='undefined') {
+    navigator.mediaSession.metadata=new MediaMetadata({title:`${item.book} ${item.chapter}`,artist:config.edition || config.title,album:track().label});
+  }
+}
+function applyLoop() {
+  audio.loop=joined ? state.repeat==='reading' : state.repeat==='chapter';
+}
+function capturePosition() {
+  if(!loadedKey || resumeAt || !Number.isFinite(audio.currentTime)) return;
+  const p=position();
+  let start=0;
+  if(joined){
+    const index=Math.max(0,joined.chapters.findLastIndex(chapter=>audio.currentTime>=chapter.start));
+    if(index!==p.index){
+      p.index=index;
+      loadedKey=joined.chapters[index].id;
+      render(); updateMediaMetadata();
+    }
+    start=joined.chapters[index].start;
+  }
+  p.seconds=Math.max(0,audio.currentTime-start);
 }
 async function urlFor(item, token=generation) {
   const id=Library.key(item.book,item.chapter);
   if(urls.has(id)) return urls.get(id);
   if(!pending.has(id)) {
     const promise=(async()=>{
-      const record=await Library.get(db,'audio',id);
-      if(!record?.blob) throw Error(`${item.book} ${item.chapter} is not saved. Import it to continue.`);
-      if(Number.isFinite(record.size) && record.blob.size<record.size) throw Error(`${item.book} ${item.chapter} was only partly saved. Import it again to repair it.`);
-      // Play from memory: Safari can stall partway through media streamed from a disk-backed IndexedDB blob.
-      const data=await record.blob.arrayBuffer();
+      // Use a memory-backed copy for Safari playback.
+      const {data,type}=await recordingData(id);
       if(token!==generation) return null;
-      const url=URL.createObjectURL(new Blob([data],{type:record.type || record.blob.type || 'audio/mpeg'})); urls.set(id,url); return url;
+      const url=URL.createObjectURL(new Blob([data],{type})); urls.set(id,url); return url;
     })();
     pending.set(id,promise);
   }
@@ -90,41 +147,92 @@ function releaseOldURLs() {
   const p=position(), keep=new Set(queue.slice(p.index,p.index+2).map(c=>Library.key(c.book,c.chapter)));
   for(const [id,url] of urls) if(!keep.has(id)){URL.revokeObjectURL(url); urls.delete(id);}
 }
-function loadCurrent() {
+function loadCurrent(single=false) {
   if(currentLoad && currentLoad.token===generation) return currentLoad.promise;
-  const token=generation, promise=loadCurrentOnce();
+  const token=generation, promise=loadCurrentOnce(single);
   currentLoad={token,promise};
   promise.finally(()=>{if(currentLoad?.promise===promise)currentLoad=null;}).catch(()=>{});
   return promise;
 }
-async function loadCurrentOnce() {
+async function loadCurrentOnce(single) {
   const item=queue[position().index]; if(!item) return false;
   const id=Library.key(item.book,item.chapter);
   if(loadedKey===id) return true;
-  const token=generation, url=await urlFor(item,token);
+  const token=generation;
+  let reading;
+  if(!single && state.repeat!=='chapter' && queue.length>1){
+    reading=await joinReading(token).catch(()=>null);
+    if(token!==generation){
+      if(reading) URL.revokeObjectURL(reading.url);
+      return false;
+    }
+  }
+  const url=reading?.url || await urlFor(item,token);
   if(!url || token!==generation) return false;
-  resumeAt=position().seconds;
-  audio.src=url; audio.load(); loadedKey=id;
-  if('mediaSession' in navigator && typeof MediaMetadata!=='undefined') navigator.mediaSession.metadata=new MediaMetadata({title:`${item.book} ${item.chapter}`,artist:config.edition || config.title,album:track().label});
-  releaseOldURLs();
+  joined=reading || null;
+  resumeAt=position().seconds+(joined?.chapters[position().index].start || 0);
+  audio.src=url; audio.load(); loadedKey=id; needsReload=false;
+  applyLoop(); updateMediaMetadata();
+  if(joined){
+    for(const cached of urls.values()) URL.revokeObjectURL(cached);
+    urls.clear();
+  } else releaseOldURLs();
   const next=queue[position().index+1];
-  if(next && records.has(Library.key(next.book,next.chapter))) urlFor(next,token).catch(()=>{});
+  if(!joined && next && records.has(Library.key(next.book,next.chapter))) urlFor(next,token).catch(()=>{});
   return true;
 }
-async function play() {
+async function play(single=false) {
   try {
     syncCalendar(); render();
-    if(!loadedKey && !await loadCurrent()) return;
+    if(needsReload){
+      unload();
+      single=true;
+    }
+    retryAvailable=true;
+    if(!loadedKey && !await loadCurrent(single)) return;
     await audio.play();
   } catch(error) { report(Error(`Playback paused. Tap the audio player’s Play button to continue. ${error.message}`)); }
 }
-async function choose(index, start=false) {
+async function choose(index, start=false, single=false) {
+  if(joined && state.repeat!=='chapter'){
+    const chapter=joined.chapters[index];
+    if(audio.readyState>=1) audio.currentTime=chapter.start;
+    else resumeAt=chapter.start;
+    Object.assign(position(),{index,seconds:0});
+    loadedKey=chapter.id; save(); render(); updateMediaMetadata();
+    if(start) await play();
+    return;
+  }
+  capturePosition();
   audio.pause(); generation++; pending.clear(); currentLoad=null; loadedKey='';
   Object.assign(position(),{index,seconds:0}); save(); render();
-  try { if(start) await play(); else await loadCurrent(); } catch(error){report(error);}
+  try { if(start) await play(single); else await loadCurrent(single); } catch(error){report(error);}
+}
+async function recoverPlayback() {
+  if(recovering || !loadedKey) return;
+  clearTimeout(stallTimer);
+  capturePosition(); save();
+  if(!wantsPlayback || !retryAvailable){
+    needsReload=true;
+    wantsPlayback=false; audio.pause();
+    report(Error('Playback stopped. Tap Resume to continue from your saved position.'));
+    return;
+  }
+  retryAvailable=false; recovering=true;
+  unload();
+  const token=generation;
+  try {
+    if(await loadCurrent(true) && token===generation) await audio.play();
+  } catch(error){
+    if(token===generation){
+      needsReload=true;
+      report(Error(`Playback stopped. Tap Resume to continue. ${error.message}`));
+    }
+  } finally {recovering=false;}
 }
 async function switchTrack(id) {
   if(id===state.track) return;
+  capturePosition();
   unload(); state.track=id; syncCalendar(); save(); render();
   try{await loadCurrent();}catch(error){report(error);}
 }
@@ -183,35 +291,74 @@ audio.addEventListener('loadedmetadata',()=>{
 });
 audio.addEventListener('timeupdate',()=>{
   if(!loadedKey) return;
-  position().seconds=audio.currentTime || 0;
+  capturePosition();
   if(Date.now()-lastSave>2000){save();lastSave=Date.now();}
 });
-audio.addEventListener('play',()=>{$('play').textContent='Pause reading'; if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';});
+audio.addEventListener('play',()=>{
+  wantsPlayback=true;
+  $('play').textContent='Pause reading';
+  if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+});
 audio.addEventListener('pause',()=>{
+  if(!audio.paused) return;
   $('play').textContent='Resume reading';
-  if(state && loadedKey) position().seconds=audio.currentTime || 0;
+  if(!audio.error && !audio.ended) wantsPlayback=false;
+  clearTimeout(stallTimer);
+  capturePosition();
   save(); if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused';
 });
-audio.addEventListener('error',()=>{loadedKey=''; report(Error('This recording could not be played. Check its format in Files, then try Play again.'));});
+audio.addEventListener('error',recoverPlayback);
+function checkStall() {
+  if(audio.paused) return;
+  clearTimeout(stallTimer);
+  const token=generation, time=audio.currentTime;
+  stallTimer=setTimeout(()=>{
+    if(token===generation && !audio.paused && !audio.seeking && audio.currentTime===time) recoverPlayback();
+  },5000);
+}
+audio.addEventListener('waiting',checkStall);
+audio.addEventListener('stalled',checkStall);
+audio.addEventListener('playing',()=>clearTimeout(stallTimer));
 audio.addEventListener('ended',async()=>{
   try {
+    clearTimeout(stallTimer);
+    if(joined && audio.currentTime+0.5<joined.duration){
+      await recoverPlayback();
+      return;
+    }
+    if(joined) capturePosition();
     const p=position();
     if(state.repeat==='chapter'){audio.currentTime=0; await play();return;}
-    if(p.index<queue.length-1){await choose(p.index+1,true);return;}
+    if(p.index<queue.length-1){await choose(p.index+1,true,true);return;}
     if(state.repeat==='reading'){await choose(0,true);return;}
     if(track().advance==='completion' && track().type!=='monthly') p.day++;
     p.index=0;p.seconds=0;
     const next=config.tracks[config.tracks.findIndex(t=>t.id===state.track)+1];
-    unload(); await save(); render();
+    unload(); save(); render();
     if(config.autoAdvanceTracks && next){await switchTrack(next.id); if(!$('play').disabled) await play();}
     else $('message').textContent='Reading complete. Ready whenever you are.';
   } catch(error){report(error);}
 });
-$('play').onclick=()=>audio.paused?play():audio.pause();
+function pausePlayback() {
+  wantsPlayback=false;
+  if(recovering && !audio.src) unload();
+  audio.pause();
+}
+$('play').onclick=()=>audio.paused?play():pausePlayback();
 $('previous').onclick=()=>{if(position().index>0) choose(position().index-1,true);};
 $('next').onclick=()=>{if(position().index<queue.length-1) choose(position().index+1,true);};
 $('speed').onchange=()=>{state.speed=Number($('speed').value); audio.playbackRate=state.speed;save();};
-$('repeat').onchange=()=>{state.repeat=$('repeat').value; audio.loop=state.repeat==='chapter';save();};
+$('repeat').onchange=async()=>{
+  capturePosition();
+  const wasPlaying=!audio.paused;
+  state.repeat=$('repeat').value;
+  applyLoop(); save();
+  if(joined && state.repeat==='chapter'){
+    unload();
+    if(wasPlaying) await play();
+    else try{await loadCurrent();}catch(error){report(error);}
+  }
+};
 $('files').onchange=()=>importRecordings(Array.from($('files').files));
 $('folder').onchange=()=>importRecordings(Array.from($('folder').files));
 $('persist').onclick=async()=>{
@@ -241,13 +388,13 @@ $('configFile').onchange=async()=>{
   }catch(error){$('configStatus').textContent=`Config not imported: ${error.message}`;}
   finally{$('configFile').value='';}
 };
-window.addEventListener('pagehide',save);
+window.addEventListener('pagehide',()=>{capturePosition();save();});
 document.addEventListener('visibilitychange',()=>{
   if(!state)return;
-  if(document.hidden)save();
+  if(document.hidden){capturePosition();save();}
   else if(audio.paused){syncCalendar();render();}
 });
-if('mediaSession' in navigator) for(const [action,handler] of Object.entries({play,pause:()=>audio.pause(),previoustrack:()=>$('previous').click(),nexttrack:()=>$('next').click(),seekbackward:()=>{audio.currentTime=Math.max(0,audio.currentTime-15);},seekforward:()=>{if(Number.isFinite(audio.duration))audio.currentTime=Math.min(audio.duration,audio.currentTime+15);}})) {
+if('mediaSession' in navigator) for(const [action,handler] of Object.entries({play:()=>play(),pause:pausePlayback,previoustrack:()=>$('previous').click(),nexttrack:()=>$('next').click(),seekbackward:()=>{audio.currentTime=Math.max(0,audio.currentTime-15);},seekforward:()=>{if(Number.isFinite(audio.duration))audio.currentTime=Math.min(audio.duration,audio.currentTime+15);}})) {
   try{navigator.mediaSession.setActionHandler(action,handler);}catch(_){}
 }
 async function init() {
